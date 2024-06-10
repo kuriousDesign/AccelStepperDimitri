@@ -62,6 +62,7 @@ void setup() {
     pinMode(PIN_HOME, INPUT);         //  use a 10K resistor at ground to switch
     disableMotor();
     setupDisplay();
+    updateDisplay(0);
 }
 
 // INPUTS
@@ -86,12 +87,22 @@ void updateIo(){
     iHomeSw = digitalRead(PIN_HOME);
 }
 
+bool atPos = false;
+
 bool updateGearNumber(){
     if (stepper.currentPosition()%STEPS_PER_INDEX == 0)
     {
+
         currentGear = stepper.currentPosition()/STEPS_PER_INDEX + 1;
+        if (currentGear == targetGear){
+            if (!atPos){
+                atPos = true;
+                // do some more display here
+            }
+        }
         return true;
     }
+    atPos = false;
     return false;
 }
 
