@@ -1,5 +1,5 @@
 /* 
-//june21 surgeory
+
 DIMITRI SHIFTER
 
 Example sketch to control a stepper motor with 
@@ -14,62 +14,27 @@ Example sketch to control a stepper motor with
 #include <AccelStepper.h>
 #define dirPin 2
 #define stepPin 3
-#define microStep 1 // 1 = Full, 2 = Half, 4, 8, 16
+#define microStep 2 // 1 = Full, 2 = Half, 4, 8, 16
 #define stepsPerRevolution 200*microStep
 
-#define MAX_RPM 1000 //adjust this value
+#define MAX_RPM 2000 //adjust this value
+
 #define MAX_VELOCITY round(double(MAX_RPM)/60.0)*stepsPerRevolution
-#define ACCEL_TIME_MS 100 //ADJUST THIS VALUE
-#define MAX_ACCELERATION MAX_VELOCITY/(ACCEL_TIME_MS/1000)
-#define REVS_PER_INDEX 8
+#define ACCEL_TIME_MS 50 //ADJUST THIS VALUE
+#define MAX_ACCELERATION (MAX_VELOCITY/(ACCEL_TIME_MS))*1000
+#define REVS_PER_INDEX 4 //ADJUST THIS TO MATCH WORM GEAR RATIO
 #define INDEX_DISTANCE stepsPerRevolution*REVS_PER_INDEX
 
 // Define stepper motor object
 AccelStepper stepper(AccelStepper::DRIVER, stepPin, dirPin);
 
+
 #define PIN_SHIFT_UP 8
 #define PIN_SHIFT_DOWN 9
-#define Enable 10
-
-void movemotor_U() {
-
-// Set the spinning direction clockwise:
-  digitalWrite(dirPin, HIGH);
-  digitalWrite(Enable, LOW);
-
-  // Spin the stepper motor 5 revolutions fast:
-  for (int i = 0; i < 8 * stepsPerRevolution; i++) {
-    // These four lines result in 1 step:
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(20);
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(20);
-  }
-}
-//*****************
-
-void movemotor_D() {
-
- // Set the spinning direction clockwise:
-  digitalWrite(dirPin, LOW);
-    digitalWrite(Enable, LOW);
-
-  // Spin the stepper motor 5 revolutions fast:
-  for (int i = 0; i < 8 * stepsPerRevolution; i++) {
-    // These four lines result in 1 step:
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(20);
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(20);
-  }
-}
-//******************
+#define PIN_ENABLE 10
 
 void setup() {
-    // Declare pins as output:
-    //pinMode(stepPin, OUTPUT);
-    //pinMode(dirPin, OUTPUT);
-    pinMode(Enable, OUTPUT);
+   
 
     // Set the maximum speed and acceleration
     stepper.setMaxSpeed(MAX_VELOCITY);
@@ -78,7 +43,7 @@ void setup() {
     digitalWrite(Enable, HIGH);
 
     Serial.begin(9600);
-
+    pinMode(PIN_ENABLE, OUTPUT);
     pinMode(PIN_SHIFT_UP, INPUT);         //  use a 10K resistor at ground to switch
     pinMode(PIN_SHIFT_DOWN, INPUT);         //  use a 10K resistor at ground to switch
 }
