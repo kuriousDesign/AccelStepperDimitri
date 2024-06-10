@@ -7,7 +7,7 @@ import os
 # Iterate over each folder and process the images
 def get_image_paths():
     # Define the base path and the folders
-    base_path = '/home/jake/Arduino/AccelStepperDimitri/include/assets'
+    base_path = '/home/jake/Arduino/AccelStepperDimitri/image_to_epaper'
     folders = [f'num_{i}' for i in range(10)]
     image_paths = []
     for folder in folders:
@@ -142,7 +142,7 @@ def compose_text_file(formatted_hex_data:list):
 
 def main():
     # Export the data to a text file
-    #image_path = '/home/jake/Arduino/AccelStepperDimitri/inlcude/assets/num_7/down/img__.png'
+    #image_path = '/home/jake/Arduino/AccelStepperDimitri/inlcude/image_to_epaper/num_7/down/img__.png'
     image_paths = get_image_paths()
 
     # Convert the images to a string list
@@ -152,15 +152,15 @@ def main():
         formatted_hex_data.append(convert_image_to_c_array(image_path, height))
 
     for i in range(3):
-        image_path1 = f'/home/jake/Arduino/AccelStepperDimitri/include/assets/num_1/down/img__.png'
-        image_path2 = f'/home/jake/Arduino/AccelStepperDimitri/include/assets/num_{i}/up/img__.png'
+        image_path1 = f'/home/jake/Arduino/AccelStepperDimitri/image_to_epaper/num_1/down/img__.png'
+        image_path2 = f'/home/jake/Arduino/AccelStepperDimitri/image_to_epaper/num_{i}/up/img__.png'
         formatted_hex_data.append(convert_image_pair_to_c_array(image_path1, image_path2, height))
 
 
 
     text_str = compose_text_file(formatted_hex_data)
 
-    output_file_path = '/home/jake/Arduino/AccelStepperDimitri/include/epd1in54_V2/epd1in54_V2/imagedata.cpp'
+    output_file_path = '/home/jake/Arduino/AccelStepperDimitri/include/epd1in54_V2/imagedata.cpp'
     with open(output_file_path, 'w') as file:
         file.write(text_str)
     print(f"C array data has been written to {output_file_path}")

@@ -1,6 +1,6 @@
 {
     "configuration": "cpu=atmega2560",
     "board": "arduino:avr:mega",
-    "sketch": "include/epd1in54_V2/epd1in54_V2/epd1in54_V2.ino",
+    "sketch": "AccelStepperDimitri.ino",
     "port": "/dev/ttyACM0"
 }
