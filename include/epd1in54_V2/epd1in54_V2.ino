@@ -100,6 +100,7 @@ void setup()
 char idx = 10;
 void loop()
 {
+  //Serial.println(String(idx));
   imageDisplay(idx);
   // textDisplay(idx);
   idx++;

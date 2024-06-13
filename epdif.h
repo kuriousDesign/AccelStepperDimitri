@@ -31,11 +31,11 @@
 #include <Arduino.h>
 
 // Pin definition
-#define RST_PIN         8
-#define DC_PIN          9
-#define CS_PIN          10
-#define BUSY_PIN        7
-#define PWR_PIN         6
+#define RST_PIN         8   // WHITE
+#define DC_PIN          9   // GREEN
+#define CS_PIN          10  // ORANGE
+#define BUSY_PIN        7   // PURPLE
+#define PWR_PIN         6   // GREY - JUST PLUG INTO 5V
 
 class EpdIf {
 public:
