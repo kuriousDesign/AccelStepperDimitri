@@ -18,7 +18,10 @@
             "includePath": [
                 "/home/jake/.arduino15/packages/arduino/hardware/avr/1.8.6/cores/arduino",
                 "/home/jake/.arduino15/packages/arduino/hardware/avr/1.8.6/variants/mega",
-                "/home/jake/.arduino15/packages/arduino/hardware/avr/1.8.6/libraries/SPI/src",
+                "/home/jake/Arduino/libraries/ISerial",
+                "/home/jake/Arduino/libraries/SafeString/src",
+                "/home/jake/Arduino/libraries/jsonlib",
+                "/home/jake/Arduino/libraries/AccelStepper/src",
                 "/home/jake/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/lib/gcc/avr/7.3.0/include",
                 "/home/jake/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/lib/gcc/avr/7.3.0/include-fixed",
                 "/home/jake/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/avr/include"

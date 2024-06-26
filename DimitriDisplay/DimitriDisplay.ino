@@ -63,6 +63,7 @@ void setup()
     iSerial.init();
     iSerial.THIS_DEVICE_ID = 2; 
     setupDisplay();
+    infoDisplay(targetGear, step);
     // gearDisplay(targetGear);
     //Serial.println("Setup complete");
     iSerial.setNewMode(Dimitri::Modes::ABORTING);
@@ -75,47 +76,39 @@ bool infoUpdated = false;
 void loop()
 {
 
-    if (iSerial.taskProcessUserInput())
-    {
-        handleSerialCmds();
-    }
+  if (iSerial.taskProcessUserInput())
+  {
+      handleSerialCmds();
+  }
 
-    switch (iSerial.status.mode)
-    {
-        case Dimitri::Modes::ABORTING:
-            iSerial.setNewMode(Dimitri::Modes::IDLE);
-            break;
-        case Dimitri::Modes::IDLE:
-            if(infoUpdated)
-            {
-                gearDisplay(targetGear);
-                infoUpdated = false;
-            }
-            break;
-        case Dimitri::Modes::HOMING:
-            if(infoUpdated)
-            {
-                //infoDisplay(targetGear, step);
-                infoUpdated = false;
-            }
-            break;
-        default:
-            break;
-    }
+  switch (iSerial.status.mode)
+  {
+      case Dimitri::Modes::ABORTING:
+          iSerial.setNewMode(Dimitri::Modes::IDLE);
+          break;
+      case Dimitri::Modes::RESETTING:
+        if(infoUpdated)
+        {
+            infoDisplay(targetGear, step);
+            infoUpdated = false;
+        }
+        break;
+      case Dimitri::Modes::IDLE:
+          if(infoUpdated)
+          {
+              //gearDisplay(targetGear);
+              infoDisplay(targetGear, step);
+              infoUpdated = false;
+          }
+          break;
+
+      default:
+          break;
+  }
 
 
   // reset values at end of each loop, like OTEs and Event
   iSerial.event = 0;
-
-
-    // delay(1000);
-    //stringInput = String(targetGear%13);
-    //infoDisplay(targetGear, step);
-    // delay(1000);
-    //targetGear++;
-    //step++;
-    //step++;
-    // gearDisplay(targetGear);
 }
 
 // handles serial cmds that aren't already handled by ISerial (connect, mode, debug, maybe more?)
@@ -126,15 +119,14 @@ void handleSerialCmds()
   switch (iSerial.cmdChr)
   {
     case Cmds::ABSPOS_CMD: //P0
-        processGearInfo();
         break;
 
     case Cmds::ACC_SET: //A0
         processStepInfo();
         break;
 
-    case Cmds::SERVOPOSINFO_CMD:
-        
+    case Cmds::SERVOPOSINFO_CMD: //N0
+        processGearInfo();
         break;
 
     case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
@@ -196,11 +188,14 @@ void processGearInfo()
   if (!iSerial.parseLong(tempLong))
   {
     targetGear = tempLong;
+    /*
     iSerial.writeCmdChrIdChr();
     iSerial.writeLong(tempLong);
     iSerial.writeNewline();
+    */
     iSerial.debugPrintln("TargetGear: " + String(tempLong));
     //infoDisplay(targetGear, step);
+    infoUpdated = true;
   }
   else
   {
@@ -214,9 +209,11 @@ void processStepInfo()
   if (!iSerial.parseLong(tempLong))
   {
     step = tempLong;
+    /*
     iSerial.writeCmdChrIdChr();
     iSerial.writeLong(tempLong);
     iSerial.writeNewline();
+    */
     iSerial.debugPrintln("Step: " + String(tempLong));
     infoUpdated = true;
     //infoDisplay(targetGear, step);
