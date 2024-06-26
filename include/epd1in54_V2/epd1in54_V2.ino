@@ -1,10 +1,12 @@
 // RESOLUTION IS 200x200
 
+
 #include <SPI.h>
 #include "epd1in54_V2.h"
 #include "imagedata.h"
 #include "epdpaint.h"
 #include <stdio.h>
+
 
 Epd epd;
 unsigned char image[1024];
@@ -19,6 +21,7 @@ void setup()
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
+
   Serial.println("e-Paper init and clear");
 
   epd.HDirInit();
@@ -72,7 +75,7 @@ void setup()
   epd.DisplayPartBaseImage(IMAGE_DATA);
 
   */
-  paint.SetWidth(80);
+  paint.SetWidth(95);
   paint.SetHeight(80);
   paint.Clear(UNCOLORED);
 
