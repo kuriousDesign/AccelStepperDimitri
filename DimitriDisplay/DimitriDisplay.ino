@@ -3,11 +3,12 @@
 // this is used to control the epaper shifter display
 /////////////////////////////////////////////////////////////////////
 
-// ISERIAL
-#include "ISerial.h"
-ISerial iSerial;
-long tempLong;
-float tempFloat;
+// SERIAL BUFFER
+long tempLong = 0;
+char cmdChr = '0';
+String readBuffer = "";
+#define MAX_LENGTH 50
+char readBufferArray[MAX_LENGTH + 1];
 
 class Dimitri
 {
@@ -56,17 +57,18 @@ bool isHomed = true;
 bool isIdle = false;
 bool atPos = false;
 int homingState = 0;
+int mode = 0;
 int step = 0;
+int error = 0;
 
 void setup()
 {
-    iSerial.init();
-    iSerial.THIS_DEVICE_ID = 2; 
-    setupDisplay();
-    infoDisplay(targetGear, step);
-    // gearDisplay(targetGear);
-    //Serial.println("Setup complete");
-    iSerial.setNewMode(Dimitri::Modes::ABORTING);
+  //Serial.begin(115200);
+  setupDisplay();
+  infoDisplay(mode, step);
+  gearDisplay(13);
+  mode = Dimitri::Modes::ABORTING;
+  Serial.println("Dimitri Display Setup Complete");
 }
 
 String stringInput = "";
@@ -76,157 +78,247 @@ bool infoUpdated = false;
 void loop()
 {
 
-  if (iSerial.taskProcessUserInput())
+  taskProcessUserInput();
+
+  switch (mode)
   {
-      handleSerialCmds();
+  case Dimitri::Modes::ABORTING:
+  case Dimitri::Modes::RESETTING:
+  case Dimitri::Modes::KILLED:
+  case Dimitri::Modes::INACTIVE:
+  case Dimitri::Modes::HOMING:
+    if (infoUpdated)
+    {
+      infoDisplay(mode, step);
+    }
+    break;
+  case Dimitri::Modes::IDLE:
+  case Dimitri::Modes::RUNNING:
+    if (infoUpdated)
+    {
+      gearDisplay(targetGear);
+    }
+    break;
+  default:
+    break;
   }
-
-  switch (iSerial.status.mode)
-  {
-      case Dimitri::Modes::ABORTING:
-          iSerial.setNewMode(Dimitri::Modes::IDLE);
-          break;
-      case Dimitri::Modes::RESETTING:
-        if(infoUpdated)
-        {
-            infoDisplay(targetGear, step);
-            infoUpdated = false;
-        }
-        break;
-      case Dimitri::Modes::IDLE:
-          if(infoUpdated)
-          {
-              //gearDisplay(targetGear);
-              infoDisplay(targetGear, step);
-              infoUpdated = false;
-          }
-          break;
-
-      default:
-          break;
-  }
-
-
-  // reset values at end of each loop, like OTEs and Event
-  iSerial.event = 0;
+  infoUpdated = false;
 }
 
 // handles serial cmds that aren't already handled by ISerial (connect, mode, debug, maybe more?)
 void handleSerialCmds()
 {
-  int idx = iSerial.idChr - '0';
-
-  switch (iSerial.cmdChr)
+  switch (cmdChr)
   {
-    case Cmds::ABSPOS_CMD: //P0
-        break;
+  case 'M':
+    processModeInfo();
+    break;
 
-    case Cmds::ACC_SET: //A0
-        processStepInfo();
-        break;
+  case 'S':
+    processStepInfo();
+    break;
 
-    case Cmds::SERVOPOSINFO_CMD: //N0
-        processGearInfo();
-        break;
+  case 'G':
+    processGearInfo();
+    break;
 
-    case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
-        iSerial.writeCmdChrIdChr();
-        iSerial.writeNewline();
-        Serial.print("iSerial.status.mode: ");
-        Serial.println(iSerial.status.mode);
-        break;
+  case 'E':
+    processErrorInfo();
+    break;
 
-    case Cmds::PARAMS_SET: // set params
-        // processParamsCmd();
-        break;
-
-    default:
-        processUnrecognizedCmd();
-        break;
+  default:
+    processUnrecognizedCmd();
+    break;
   }
 }
 
 void setupDisplay()
 {
-    Serial.println("e-Paper init and clear");
-    epd.HDirInit();
-    epd.Clear();
-    paint.SetRotate(ROTATE_0);
-    paint.SetWidth(95);
-    paint.SetHeight(80);
-    paint.Clear(UNCOLORED);
+  Serial.println("e-Paper init and clear");
+  epd.HDirInit();
+  epd.Clear();
+  paint.SetRotate(ROTATE_0);
+  paint.SetWidth(95);
+  paint.SetHeight(80);
+  paint.Clear(UNCOLORED);
 }
 
 void gearDisplay(int gear)
 {
-    epd.DisplayPartBaseImage(IMAGE_DATA[gear % 13]);
+  epd.DisplayPartBaseImage(IMAGE_DATA[gear % 13]);
 }
 
-void infoDisplay(int gear, int step)
+void infoDisplay(int mode, int step)
 {
-    // char str[13][10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"};
-    paint.Clear(UNCOLORED);
-    
-    paint.SetWidth(95);
-    paint.SetHeight(80);
-    String gearStr = String(gear);
-    String stepStr = String(step);
+  // char str[13][10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"};
+  Serial.println("infoDisplay");
+  paint.Clear(UNCOLORED);
 
-    paint.DrawStringAt(0, 0, "G", &Font24, COLORED);
-    paint.DrawStringAt(30, 0, gearStr.c_str(), &Font24, COLORED);
-    
-    paint.DrawStringAt(30, 30, stepStr.c_str(), &Font24, COLORED);
-    paint.DrawStringAt(0, 30, "S", &Font24, COLORED);
-    paint.SetRotate(ROTATE_0);
-    epd.SetFrameMemoryPartial(paint.GetImage(), 0, 140, paint.GetWidth(), paint.GetHeight());
-    epd.DisplayPartFrame();
+  paint.SetWidth(95);
+  paint.SetHeight(80);
+  String modeStr = String(mode);
+  String stepStr = String(step);
+
+  paint.DrawStringAt(0, 0, "M", &Font24, COLORED);
+  paint.DrawStringAt(30, 0, modeStr.c_str(), &Font24, COLORED);
+
+  paint.DrawStringAt(30, 30, stepStr.c_str(), &Font24, COLORED);
+  paint.DrawStringAt(0, 30, "S", &Font24, COLORED);
+
+  paint.SetRotate(ROTATE_0);
+  epd.SetFrameMemoryPartial(paint.GetImage(), 0, 140, paint.GetWidth(), paint.GetHeight());
+  epd.DisplayPartFrame();
+}
+
+void infoDisplayOffset(const char *chr1, int val1, const char *chr2, int val2)
+{
+  Serial.println("infoDisplay");
+  paint.Clear(UNCOLORED);
+
+  paint.SetWidth(95);
+  paint.SetHeight(80);
+  String val1Str = String(val1);
+  String val2Str = String(val2);
+
+  paint.DrawStringAt(0, 0, chr1, &Font24, COLORED);
+  paint.DrawStringAt(30, 0, val1Str.c_str(), &Font24, COLORED);
+
+  paint.DrawStringAt(30, 30, val2Str.c_str(), &Font24, COLORED);
+  paint.DrawStringAt(0, 30, chr2, &Font24, COLORED);
+  paint.SetRotate(ROTATE_0);
+  epd.SetFrameMemoryPartial(paint.GetImage(), 0, 140, paint.GetWidth(), paint.GetHeight());
+  epd.DisplayPartFrame();
 }
 
 void processGearInfo()
 {
-  int motor = iSerial.idChr - '0';
-  if (!iSerial.parseLong(tempLong))
+
+  if (!parseLong(readBuffer, tempLong))
   {
     targetGear = tempLong;
-    /*
-    iSerial.writeCmdChrIdChr();
-    iSerial.writeLong(tempLong);
-    iSerial.writeNewline();
-    */
-    iSerial.debugPrintln("TargetGear: " + String(tempLong));
-    //infoDisplay(targetGear, step);
     infoUpdated = true;
   }
   else
   {
-    iSerial.writeCmdWarning("could not parse position data");
+    Serial.println("could not parse position data");
+  }
+}
+
+void processModeInfo()
+{
+  if (!parseLong(readBuffer, tempLong))
+  {
+    mode = tempLong;
+    Serial.print("new mode data: ");
+    Serial.println(mode);
+    infoUpdated = true;
+  }
+  else
+  {
+    Serial.println("could not parse position data");
   }
 }
 
 void processStepInfo()
 {
-  int motor = iSerial.idChr - '0';
-  if (!iSerial.parseLong(tempLong))
+  if (!parseLong(readBuffer, tempLong))
   {
     step = tempLong;
-    /*
-    iSerial.writeCmdChrIdChr();
-    iSerial.writeLong(tempLong);
-    iSerial.writeNewline();
-    */
-    iSerial.debugPrintln("Step: " + String(tempLong));
     infoUpdated = true;
-    //infoDisplay(targetGear, step);
   }
   else
   {
-    iSerial.writeCmdWarning("could not parse position data");
+    Serial.println("could not parse position data");
+  }
+}
+
+void processErrorInfo()
+{
+  if (!parseLong(readBuffer, tempLong))
+  {
+    error = tempLong;
+    infoDisplayOffset("E", error, "E", error);
+  }
+  else
+  {
+    Serial.println("could not parse position data");
   }
 }
 
 void processUnrecognizedCmd()
 {
   String msg1 = "didn't recognize cmdChr: ";
-  msg1.concat(char(iSerial.cmdChr));
-  iSerial.writeCmdWarning(msg1);
+  Serial.println(msg1 + String(cmdChr));
+  // msg1.concat(char(iSerial.cmdChr));
+  // iSerial.writeCmdWarning(msg1);
+}
+
+void taskProcessUserInput()
+{
+  if (readIncomingData()) // reads input stream if data available, returns true if delimiter is found
+  {
+    Serial.println("handleSerialCmds()");
+    handleSerialCmds();
+  }
+}
+
+bool readIncomingData()
+{
+  readBuffer = "";
+  readBufferArray[0] = '\0';
+  static int idx = 0;
+  if (Serial.available())
+  {
+    delay(1); // let the buffer fill
+    idx = 0;
+    while (Serial.available())
+    {
+      char c = char(Serial.read());
+
+      if (c == '\n')
+      {
+        if (idx >= 2)
+        {
+          cmdChr = readBufferArray[0];
+          readBuffer.remove(0, 1);
+          Serial.println(readBuffer);
+          return true;
+        }
+        else
+        {
+          return false;
+        }
+      }
+      else
+      {
+        readBufferArray[idx] = c;
+        readBuffer += c;
+        idx++;
+      }
+    }
+  }
+  return false;
+}
+
+bool parseLong(String myString, long &myNumber)
+{
+
+  // Convert the String to a char array
+  char myCharArray[myString.length() + 1];
+  myString.toCharArray(myCharArray, myString.length() + 1);
+
+  // Parse the char array to a long
+  char *endptr;
+  myNumber = strtol(myCharArray, &endptr, 10); // Base 10
+
+  // Check if the entire string was parsed
+  if (*endptr != '\0')
+  {
+    // Serial.println("The input string was not a valid number.");
+    return true;
+  }
+  else
+  {
+    return false;
+  }
 }

@@ -2,13 +2,14 @@
 // DIMITRI MOTION
 /////////////////////////////////////////////////////////////////////////
 
-
 // CONFIGURATION
 const bool CALIBRATE_HOME = true; // set to true when training home offset position
-const int HOME_OFFSET = 0; //
+const int HOME_OFFSET = 0;        //
 
 // ISERIAL
 #include "ISerial.h"
+#include <Arduino.h> // Add this line to include the Arduino library
+
 ISerial iSerial;
 long tempLong;
 float tempFloat;
@@ -16,25 +17,25 @@ float tempFloat;
 class Dimitri
 {
 public:
-  // Game::Modes, these should match Game::Modes enum in the outerspace
-  enum Modes : int32_t
-  {
-    ABORTING = -3,
-    KILLED = -2,
-    INACTIVE = 0,
-    RESETTING = 50,
-    IDLE = 100,
-    HOMING = 200,
-    RUNNING = 500,
-    MANUAL = 1100,
+    // Game::Modes, these should match Game::Modes enum in the outerspace
+    enum Modes : int32_t
+    {
+        ABORTING = -3,
+        KILLED = -2,
+        INACTIVE = 0,
+        RESETTING = 50,
+        IDLE = 100,
+        HOMING = 200,
+        RUNNING = 500,
+        MANUAL = 1100,
 
-  };
+    };
 
-  enum Events : int
-  {
-    NONE = 0,
-    ASTEROID_1_PASSED = 1,
-  };
+    enum Errors : int32_t
+    {
+        NONE = 0,
+        POS_LIM_SW_ON_WHEN_NOT_AT_GEAR_12 = 1,
+    };
 };
 
 // STEPPER INCLUDES
@@ -54,12 +55,12 @@ public:
 
 #define MAX_RPM 1000 // adjust this value
 
-//const int MAX_VELOCITY = round(double(MAX_RPM)/60.0)*STEPS_PER_REV;
+// const int MAX_VELOCITY = round(double(MAX_RPM)/60.0)*STEPS_PER_REV;
 const int MAX_VELOCITY = 6000;
-#define ACCEL_TIME_MS 10000 //ADJUST THIS VALUE
-const int MAX_ACCELERATION = 6000*5;//  (MAX_VELOCITY/(ACCEL_TIME_MS))*1000;
-#define REVS_PER_INDEX 10 //ADJUST THIS TO MATCH WORM GEAR RATIO
-#define STEPS_PER_INDEX STEPS_PER_REV*REVS_PER_INDEX
+#define ACCEL_TIME_MS 10000            // ADJUST THIS VALUE
+const int MAX_ACCELERATION = 6000 * 5; //  (MAX_VELOCITY/(ACCEL_TIME_MS))*1000;
+#define REVS_PER_INDEX 10              // ADJUST THIS TO MATCH WORM GEAR RATIO
+#define STEPS_PER_INDEX STEPS_PER_REV *REVS_PER_INDEX
 #define NUM_GEARS 12
 
 // Define stepper motor object
@@ -67,13 +68,15 @@ AccelStepper stepper(AccelStepper::DRIVER, PIN_STEP, PIN_DIR);
 
 unsigned long time_start_ms;
 unsigned long time_now_s;
-bool infoUpdated = false;
+
 
 void setup()
 {
-    //Serial.begin(115200);
+
     iSerial.init();
-    iSerial.THIS_DEVICE_ID = 1; 
+    iSerial.THIS_DEVICE_ID = 1;
+
+    Serial1.begin(115200);
 
     // Set the maximum speed and acceleration
     stepper.setMaxSpeed(MAX_VELOCITY);
@@ -81,13 +84,14 @@ void setup()
     pinMode(PIN_ENABLE, OUTPUT);
     pinMode(PIN_SHIFT_UP, INPUT_PULLUP);   //  use a 10K resistor at ground to switch
     pinMode(PIN_SHIFT_DOWN, INPUT_PULLUP); //  use a 10K resistor at ground to switch
-    pinMode(PIN_POS_LIM, INPUT);       //  use a 10K resistor at ground to switch
-    pinMode(PIN_CAM, INPUT);       //  use a 10K resistor at ground to switch
+    pinMode(PIN_POS_LIM, INPUT);           //  use a 10K resistor at ground to switch
+    pinMode(PIN_CAM, INPUT);               //  use a 10K resistor at ground to switch
 
     enableMotor();
-    //Serial.println("Setup complete");
+
     iSerial.debug = true;
     iSerial.setNewMode(Dimitri::Modes::ABORTING);
+    iSerial.debugPrintln("Setup complete");
 }
 
 // INPUTS
@@ -98,29 +102,23 @@ bool iCamSw = false;
 
 // SHIFTER VARIABLES
 
-bool shiftUpReq = false;
-bool shiftDownReq = false;
-
 int currentGear = 0;
 int targetGear = 0;
-bool isHomed = true;
+bool isHomed = false;
 bool isIdle = false;
-
-
-
 
 void updateIo()
 {
     iShiftUpSw = !digitalRead(PIN_SHIFT_UP);
     iShiftDownSw = !digitalRead(PIN_SHIFT_DOWN);
-    //iShiftDownSw = false; // TODO: remove this line
+    // iShiftDownSw = false; // TODO: remove this line
     if (iShiftUpSw)
     {
-        //Serial.println("1");
+        // Serial.println("1");
     }
     else
     {
-        //Serial.println("0");
+        // Serial.println("0");
     }
 
     iPosLimSw = !digitalRead(PIN_POS_LIM);
@@ -129,134 +127,78 @@ void updateIo()
 
 bool atPos = false;
 
+// returns true if at position and no steps left
 bool updateGearNumber()
 {
+    // only updates the current gear if it is at the exact position
     if (stepper.currentPosition() % STEPS_PER_INDEX == 0)
     {
-        currentGear = stepper.currentPosition() / STEPS_PER_INDEX + 1;
-        if (currentGear == targetGear)
+        currentGear = stepper.currentPosition() / STEPS_PER_INDEX;
+        if (currentGear == targetGear && stepper.distanceToGo() == 0)
         {
             if (!atPos)
             {
                 atPos = true;
-                // do some more display here
+                iSerial.debugPrintln("In Position at Gear: " + String(currentGear));
             }
+            return true;
         }
-        return true;
     }
     atPos = false;
     return false;
 }
 
-void loop()
+int homeMotor(bool reset = false)
 {
-    updateIo();
-    updateGearNumber();
+    static int homingState = 0;
+    static int prevHomingState = -1;
 
-    if (iSerial.taskProcessUserInput())
+    if (reset)
     {
-        handleSerialCmds();
+        homingState = 0;
+        prevHomingState = -1;
+        disableMotor();
+        // isHomed = false;
+        // return homingState;
     }
-
-    switch (iSerial.status.mode)
+    else if (!iShiftDownSw && homingState < 90 || homingState == 911)
     {
-        case Dimitri::Modes::ABORTING:
-            iSerial.setNewMode(Dimitri::Modes::HOMING);
-            break;
-        case Dimitri::Modes::IDLE:
-            if (!shiftUpReq && !shiftDownReq && iShiftUpSw && isHomed && targetGear < NUM_GEARS)
-            {
-                shiftUpReq = true;
-                enableMotor();
-                stepper.move(STEPS_PER_INDEX);
-                targetGear += 1;
-            }
-            else if (!iShiftUpSw)
-            {
-                shiftUpReq = false;
-            }
-
-            if (!shiftUpReq && !shiftDownReq && iShiftDownSw && !iPosLimSw && isHomed && targetGear > - NUM_GEARS)
-            {
-                shiftDownReq = true;
-                enableMotor();
-                stepper.move(-STEPS_PER_INDEX);
-                targetGear -= 1;
-            }
-            else if (!iShiftDownSw)
-            {
-                shiftDownReq = false;
-            }
-
-            // Wait until the motor reaches the target position
-            if (stepper.distanceToGo() == 0)
-            {
-                if (!isIdle)
-                {
-                    disableMotor();
-                    isIdle = true;
-                }
-                else
-                {
-                    isIdle = false;
-                }
-            }
-            break;
-        case Dimitri::Modes::HOMING:
-            homeMotor();
-            break;
-        case Dimitri::Modes::MANUAL:
-            runVelocityUsingShifter();
-            break;  
-        default:
-            break;
-    }
-
-    iSerial.event = 0;
-    stepper.run();
-}
-
-
-int homingState = 0;
-int prevHomingState = -1;
-bool homeMotor()
-{
-    if (iShiftDownSw || (homingState >= 90 && homingState < 911))
-    {
-        enableMotor();
+        disableMotor();
+        // stepper.setMaxSpeed(MAX_VELOCITY/10);
+        if (homingState != 1 && homingState != 0)
+        {
+            iSerial.debugPrintln("WARNING! user stopped holding down shift switch during homing, disabling motor and restarting sequence");
+            homingState = 0;
+        }
     }
     else
     {
-        disableMotor();
-        //stepper.setMaxSpeed(MAX_VELOCITY/10);
-        if (homingState != 0)
-        {
-            iSerial.debugPrintln("Instant Kill Condition: user stop holding down shift switch during homing");
-        }
-        homingState = 0;
+        enableMotor();
     }
-    
+
     switch (homingState)
     {
-    case 0:
-        
-        if (!iShiftDownSw){
-            iSerial.debugPrintln("HOMING STARTED: hold down shift switch to proceed");
-            homingState = 0;
-        }
-        else if (iPosLimSw)
-        {
-            iSerial.debugPrintln("Pos Lim Switch detected at homing start: moving backwards until sw is OFF");
-            homingState = 5;
-        }
-        else
-        {
-            iSerial.debugPrintln("Pos Lim Switch not detected at homing start: moving forward until sw is ON");
-            homingState = 10;
-        }
+    case 0: // START HOMING
+        iSerial.debugPrintln("HOMING STARTED: hold down shift switch to proceed");
+        homingState = 1;
         break;
 
-    case 5: //MOVING NEGATIVE UNTIL POS LIM SW IS OFF
+    case 1: // WAIT FOR DOWN SHIFT SW
+        if (iShiftDownSw)
+        {
+            if (iPosLimSw)
+            {
+                iSerial.debugPrintln("Pos Lim Switch detected at homing start: moving backwards until sw is OFF");
+                homingState = 5;
+            }
+            else
+            {
+                iSerial.debugPrintln("Pos Lim Switch not detected at homing start: moving forward until sw is ON");
+                homingState = 10;
+            }
+        }
+        break;
+    case 5: // MOVING NEGATIVE UNTIL POS LIM SW IS OFF
         stepper.move(-STEPS_PER_INDEX);
         homingState = 6;
         break;
@@ -274,8 +216,9 @@ bool homeMotor()
         }
         break;
     case 10: // MOVING FORWARD UNTIL POS LIM SWITCH IS ON
-        if (stepper.distanceToGo() == 0){
-            stepper.setMaxSpeed(MAX_VELOCITY/5);
+        if (stepper.distanceToGo() == 0)
+        {
+            stepper.setMaxSpeed(MAX_VELOCITY / 5);
             stepper.move(STEPS_PER_INDEX * NUM_GEARS);
             homingState = 11;
         }
@@ -293,11 +236,12 @@ bool homeMotor()
             homingState = 911;
         }
         break;
-    case 20: //MOVING FORWARD UNTIL CAM SWITCH TURNS ON
-        //Serial.println("Homing: step 5");
-        if (stepper.distanceToGo() == 0){
-            stepper.setMaxSpeed(MAX_VELOCITY/50);
-            stepper.move(STEPS_PER_INDEX/4);
+    case 20: // MOVING FORWARD UNTIL CAM SWITCH TURNS ON
+        // Serial.println("Homing: step 5");
+        if (stepper.distanceToGo() == 0)
+        {
+            stepper.setMaxSpeed(MAX_VELOCITY / 50);
+            stepper.move(STEPS_PER_INDEX / 4);
             homingState = 21;
         }
         break;
@@ -314,11 +258,12 @@ bool homeMotor()
             homingState = 911;
         }
         break;
-    case 30: //CRAWLING BACKWARD UNTIL CAM SWITCH TURNS ON
-        
-        if (stepper.distanceToGo() == 0){
-            stepper.setMaxSpeed(MAX_VELOCITY/50);
-            stepper.move(-STEPS_PER_INDEX/4);
+    case 30: // CRAWLING BACKWARD UNTIL CAM SWITCH TURNS ON
+
+        if (stepper.distanceToGo() == 0)
+        {
+            stepper.setMaxSpeed(MAX_VELOCITY / 50);
+            stepper.move(-STEPS_PER_INDEX / 4);
             homingState = 31;
         }
         break;
@@ -338,7 +283,6 @@ bool homeMotor()
                 iSerial.debugPrintln("moving to home offset position");
                 homingState = 70;
             }
-   
         }
         else if (stepper.distanceToGo() == 0)
         {
@@ -346,8 +290,9 @@ bool homeMotor()
             homingState = 911;
         }
         break;
-    case 70: //FINISHING HOMING
-        if (stepper.distanceToGo() == 0){
+    case 70: // FINISHING HOMING
+        if (stepper.distanceToGo() == 0)
+        {
             stepper.moveTo(HOME_OFFSET);
             homingState = 80;
         }
@@ -355,11 +300,11 @@ bool homeMotor()
     case 71:
         if (stepper.distanceToGo() == 0)
         {
-            
+
             homingState = 80;
         }
         break;
-    case 80: //INITIALIZE CURRENT AND TARGET GEAR NUMBER
+    case 80: // INITIALIZE CURRENT AND TARGET GEAR NUMBER
         stepper.setCurrentPosition(STEPS_PER_INDEX * NUM_GEARS);
         targetGear = NUM_GEARS;
         updateGearNumber();
@@ -376,7 +321,7 @@ bool homeMotor()
 
     case 100: // DONE
         stepper.setMaxSpeed(MAX_VELOCITY);
-        isHomed = true;
+        // isHomed = true;
         break;
 
     case 110: // CALIBRATE HOME
@@ -398,14 +343,13 @@ bool homeMotor()
             homingState = 110;
             iSerial.debugPrint("Current Position: ");
             iSerial.debugPrintln(String(stepper.currentPosition()));
-            //textDisplay(String(stepper.currentPosition()).c_str());
+            // textDisplay(String(stepper.currentPosition()).c_str());
         }
         break;
 
-
     case 911: // ERROR
         disableMotor();
-        isHomed = false;
+        // isHomed = false;
         break;
     default:
         break;
@@ -413,15 +357,161 @@ bool homeMotor()
 
     if (prevHomingState != homingState)
     {
-        if(!iSerial.debug){
-            sendStepInfo(homingState);
-        } 
+        sendStepInfo(homingState);
         iSerial.debugPrint("Homing State: ");
         iSerial.debugPrintln(String(homingState));
-
     }
     prevHomingState = homingState;
-    return isHomed;
+    return homingState;
+}
+
+void loop()
+{
+    static bool autoHomeAtPowerup = true;
+    static int prevMode = -1;
+    static int prevStep = -1;
+    static int prevTargetGear = -1;
+
+    updateIo();
+    updateGearNumber();
+
+    if (iSerial.taskProcessUserInput())
+    {
+        handleSerialCmds();
+    }
+
+    switch (iSerial.status.mode)
+    {
+    case Dimitri::Modes::ABORTING:
+        disableMotor();
+        iSerial.setNewMode(Dimitri::Modes::KILLED);
+        break;
+    case Dimitri::Modes::KILLED:
+        disableMotor();
+        iSerial.setNewMode(Dimitri::Modes::INACTIVE);
+        break;
+    case Dimitri::Modes::INACTIVE:
+        if (autoHomeAtPowerup)
+        {
+            iSerial.debugPrintln("Auto homing at powerup");
+            autoHomeAtPowerup = false;
+            iSerial.setNewMode(Dimitri::Modes::HOMING);
+        }
+        break;
+    case Dimitri::Modes::IDLE:
+        disableMotor();
+        if (checkGearChange())
+        {
+            enableMotor();
+            stepper.moveTo(targetGear * STEPS_PER_INDEX);
+            iSerial.setNewMode(Dimitri::Modes::RUNNING);
+        }
+        break;
+    case Dimitri::Modes::RUNNING:
+        enableMotor();
+        if (checkGearChange())
+        {
+            stepper.moveTo(targetGear * STEPS_PER_INDEX);
+        }
+        else if (atPos)
+        {
+            iSerial.setNewMode(Dimitri::Modes::IDLE);
+        }
+        break;
+    case Dimitri::Modes::HOMING:
+        if (iSerial.status.step == 0)
+        {
+            isHomed = false;
+            iSerial.status.step = homeMotor(true); // this should return a value of 1
+            // iSerial.status.step = 1;
+        }
+        else
+        {
+            iSerial.status.step = homeMotor();
+            if (iSerial.status.step == 100)
+            {
+                iSerial.setNewMode(Dimitri::Modes::IDLE);
+            }
+            else if (iSerial.status.step == 911)
+            {
+                iSerial.debugPrintln("ERROR! Homing failed, aborting");
+                iSerial.setNewMode(Dimitri::Modes::ABORTING);
+            }
+        }
+
+        break;
+    case Dimitri::Modes::MANUAL:
+        enableMotor();
+        runVelocityUsingShifter();
+        break;
+    default:
+        break;
+    }
+
+    iSerial.event = 0;
+
+    stepper.run();
+
+    // send status updates to the display device
+    if (prevMode != iSerial.status.mode)
+    {
+        iSerial.debugPrintln("Mode: " + getModeString(iSerial.status.mode));
+        sendModeInfo();
+        prevMode = iSerial.status.mode;
+    }
+    if (prevStep != iSerial.status.step)
+    {
+        iSerial.debugPrintln("Step: " + String(iSerial.status.step));
+        sendStepInfo(iSerial.status.step);
+        prevStep = iSerial.status.step;
+    }
+    if (prevTargetGear != targetGear)
+    {
+        iSerial.debugPrintln("Target Gear: " + String(targetGear));
+        sendGearInfo(targetGear);
+        prevTargetGear = targetGear;
+    }
+}
+
+// checks for gear change inputs and updates the target gear accordingly
+bool checkGearChange()
+{
+    static bool shiftUpReq = false;
+    static bool shiftDownReq = false;
+
+    if (!shiftUpReq && !shiftDownReq && iShiftUpSw && targetGear < NUM_GEARS) // UP SHIFT - ONE SHOT
+    {
+        if(iPosLimSw)
+        {
+            iSerial.debugPrintln("ERROR! Pos Lim Switch is active when not at gear 12, cannot shift up");
+            sendErrorInfo(Dimitri::Errors::POS_LIM_SW_ON_WHEN_NOT_AT_GEAR_12);
+            iSerial.debugPrintln("auto aborting...");
+            iSerial.setNewMode(Dimitri::Modes::ABORTING);
+            return false;
+        } 
+        else {
+            targetGear += 1;
+            return true;
+        }
+        shiftUpReq = true;
+    }
+    else if (!iShiftUpSw)
+    {
+        shiftUpReq = false;
+    }
+
+    if (!shiftUpReq && !shiftDownReq && iShiftDownSw  && targetGear > 1) // DOWN SHIFT - ONE SHOT
+    {
+        shiftDownReq = true;
+        targetGear -= 1;
+        return true;
+    }
+    else if (!iShiftDownSw)
+    {
+        shiftDownReq = false;
+    }
+
+    // Wait until the motor reaches the target position
 }
 
 void enableMotor()
@@ -434,21 +524,22 @@ void disableMotor()
     digitalWrite(PIN_ENABLE, HIGH);
 }
 
-void runVelocityUsingShifter(){
+void runVelocityUsingShifter()
+{
+    
     if (iShiftDownSw)
     {
-        stepper.setSpeed(-MAX_VELOCITY/100);
+        stepper.setSpeed(-MAX_VELOCITY / 100);
     }
     else if (iShiftUpSw)
     {
-        stepper.setSpeed(MAX_VELOCITY/100);
-
+        stepper.setSpeed(MAX_VELOCITY / 100);
     }
-    else {
+    else
+    {
         stepper.stop();
     }
 }
-
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // ISERIAL HELPERS
@@ -457,27 +548,32 @@ void runVelocityUsingShifter(){
 // handles serial cmds that aren't already handled by ISerial (connect, mode, debug, maybe more?)
 void handleSerialCmds()
 {
-  int idx = iSerial.idChr - '0';
+    int idx = iSerial.idChr - '0';
 
-  switch (iSerial.cmdChr)
-  {
-    case Cmds::ABSPOS_CMD: //P0
+    switch (iSerial.cmdChr)
+    {
+    case Cmds::ABSPOS_CMD: // P0
         processGearChange();
         break;
 
-    case Cmds::ACC_SET: //A0
-        //processStepInfo();
+    case Cmds::ACC_SET: // A0
+        // processStepInfo();
         break;
 
-    case Cmds::SERVOPOSINFO_CMD: //N0
-        
+    case Cmds::SERVOPOSINFO_CMD: // N0
+
         break;
 
     case Cmds::SERIAL_OUTPUT: // X0: prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
-        iSerial.writeCmdChrIdChr();
-        iSerial.writeNewline();
-        Serial.print("iSerial.status.mode: ");
-        Serial.println(iSerial.status.mode);
+        // iSerial.writeCmdChrIdChr();
+        // iSerial.writeNewline();
+        Serial.print("Mode: ");
+        Serial.println(getModeString(iSerial.status.mode));
+        Serial.print("Step: ");
+        Serial.println(iSerial.status.step);
+        Serial.println("Current Position: " + String(stepper.currentPosition()));
+        Serial.println("Current Gear: " + String(currentGear));
+        Serial.println("Target Gear: " + String(targetGear));
         break;
 
     case Cmds::PARAMS_SET: // set params
@@ -487,50 +583,85 @@ void handleSerialCmds()
     default:
         processUnrecognizedCmd();
         break;
-  }
+    }
 }
 
 void processUnrecognizedCmd()
 {
-  String msg1 = "didn't recognize cmdChr: ";
-  msg1.concat(char(iSerial.cmdChr));
-  iSerial.writeCmdWarning(msg1);
+    String msg1 = "didn't recognize cmdChr: ";
+    msg1.concat(char(iSerial.cmdChr));
+    iSerial.writeCmdWarning(msg1);
 }
 
 int serialGearNumReq = 0;
 void processGearChange()
 {
-  //int motor = iSerial.idChr - '0';
-  if (!iSerial.parseLong(tempLong))
-  {
-    serialGearNumReq = tempLong;
-    /*
-    iSerial.writeCmdChrIdChr();
-    iSerial.writeLong(tempLong);
-    iSerial.writeNewline();
-    */
-    iSerial.debugPrintln("Step: " + String(tempLong));
-    infoUpdated = true;
-    //infoDisplay(targetGear, step);
-  }
-  else
-  {
-    iSerial.writeCmdWarning("could not parse position data");
-  }
+    // int motor = iSerial.idChr - '0';
+    if (!iSerial.parseLong(tempLong))
+    {
+        serialGearNumReq = tempLong;
+    }
+    else
+    {
+        iSerial.writeCmdWarning("could not parse position data");
+    }
 }
 
+// send gear info to the display device
 void sendGearInfo(long gear)
 {
-    iSerial.writeString("N0");
-    //iSerial.writeCmdChrIdChr();
-    iSerial.writeLong(gear);
-    iSerial.writeNewline();
+    Serial1.println("G" + String(gear));
 }
 
+// send step info to the display device
 void sendStepInfo(long step)
 {
-    iSerial.writeString("A0");
-    //iSerial.writeCmdChrIdChr();
-    iSerial.writeLong(step);
-    iSerial.writeNewline();
+    Serial1.println("S" + String(step));
+}
+
+// send step info to the display device
+void sendModeInfo()
+{
+    Serial1.println("M" + String(iSerial.status.mode));
+}
+
+void sendErrorInfo(int errorCode)
+{
+    Serial1.println("E" + String(errorCode));
+}
+
+String getModeString(int mode)
+{
+    String modeString;
+    switch (mode)
+    {
+    case Dimitri::Modes::ABORTING:
+        modeString = "ABORTING";
+        break;
+    case Dimitri::Modes::KILLED:
+        modeString = "KILLED";
+        break;
+    case Dimitri::Modes::INACTIVE:
+        modeString = "INACTIVE";
+        break;
+    case Dimitri::Modes::RESETTING:
+        modeString = "RESETTING";
+        break;
+    case Dimitri::Modes::IDLE:
+        modeString = "IDLE";
+        break;
+    case Dimitri::Modes::HOMING:
+        modeString = "HOMING";
+        break;
+    case Dimitri::Modes::RUNNING:
+        modeString = "RUNNING";
+        break;
+    case Dimitri::Modes::MANUAL:
+        modeString = "MANUAL";
+        break;
+    default:
+        modeString = "UNKNOWN";
+        break;
+    }
+    return modeString;
 }
