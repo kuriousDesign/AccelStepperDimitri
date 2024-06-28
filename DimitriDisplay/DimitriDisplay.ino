@@ -1,6 +1,8 @@
 /////////////////////////////////////////////////////////////////////
 // DIMITRI DISPLAY
 // this is used to control the epaper shifter display
+
+// TODO: cannot use Serial with certain part of ePaper library, can use disrete i/o for comms
 /////////////////////////////////////////////////////////////////////
 
 // SERIAL BUFFER
@@ -24,7 +26,6 @@ public:
     HOMING = 200,
     RUNNING = 500,
     MANUAL = 1100,
-
   };
 
   enum Events : int

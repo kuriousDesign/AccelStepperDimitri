@@ -109,19 +109,30 @@ bool isIdle = false;
 
 void updateIo()
 {
+    bool DEBUG_IO = true;
+    if (iShiftUpSw != !digitalRead(PIN_SHIFT_UP) && DEBUG_IO)
+    {
+        iSerial.debugPrintln("iShiftUpSw: " + String(!digitalRead(PIN_SHIFT_UP)));
+    }
     iShiftUpSw = !digitalRead(PIN_SHIFT_UP);
-    iShiftDownSw = !digitalRead(PIN_SHIFT_DOWN);
-    // iShiftDownSw = false; // TODO: remove this line
-    if (iShiftUpSw)
-    {
-        // Serial.println("1");
-    }
-    else
-    {
-        // Serial.println("0");
-    }
 
+    if (iShiftDownSw != !digitalRead(PIN_SHIFT_DOWN) && DEBUG_IO)
+    {
+        iSerial.debugPrintln("iShiftDownSw: " + String(!digitalRead(PIN_SHIFT_DOWN)));
+    }
+    iShiftDownSw = !digitalRead(PIN_SHIFT_DOWN);
+
+
+    if (iPosLimSw != !digitalRead(PIN_POS_LIM) && DEBUG_IO)
+    {
+        iSerial.debugPrintln("iPosLimSw: " + String(!digitalRead(PIN_POS_LIM)));
+    }
     iPosLimSw = !digitalRead(PIN_POS_LIM);
+
+    if (iCamSw != !digitalRead(PIN_CAM) && DEBUG_IO)
+    {
+        iSerial.debugPrintln("iCamSw: " + String(!digitalRead(PIN_CAM)));
+    }
     iCamSw = !digitalRead(PIN_CAM);
 }
 
@@ -574,6 +585,8 @@ void handleSerialCmds()
         Serial.println("Current Position: " + String(stepper.currentPosition()));
         Serial.println("Current Gear: " + String(currentGear));
         Serial.println("Target Gear: " + String(targetGear));
+        Serial.println("iPosLimSw: " + String(iPosLimSw));
+        Serial.println("iCamSw: " + String(iCamSw));
         break;
 
     case Cmds::PARAMS_SET: // set params
