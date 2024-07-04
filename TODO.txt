@@ -1,0 +1,3 @@
+STATUS          DESCRIPTION
+
+                add logic to fix gear position if it changes gear and cam switch isn't on. 
