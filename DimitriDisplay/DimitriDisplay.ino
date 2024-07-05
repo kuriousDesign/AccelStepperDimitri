@@ -5,6 +5,8 @@
 // TODO: cannot use Serial with certain part of ePaper library, can use disrete i/o for comms
 /////////////////////////////////////////////////////////////////////
 
+#define DEMO_MODE true //this is the normal case
+
 // SERIAL BUFFER
 long tempLong = 0;
 char cmdChr = '0';
@@ -12,34 +14,25 @@ String readBuffer = "";
 #define MAX_LENGTH 50
 char readBufferArray[MAX_LENGTH + 1];
 
-class Dimitri
-{
-public:
-  // Game::Modes, these should match Game::Modes enum in the outerspace
-  enum Modes : int32_t
-  {
-    ABORTING = -3,
-    KILLED = -2,
-    INACTIVE = 0,
-    RESETTING = 50,
-    IDLE = 100,
-    HOMING = 200,
-    RUNNING = 500,
-    MANUAL = 1100,
-  };
-
-  enum Events : int
-  {
-    NONE = 0,
-    ASTEROID_1_PASSED = 1,
-  };
-};
+#include "Dimitri.h"
 // EPAPER INCLUDES
 #include <SPI.h>
 #include "epd1in54_V2.h"
 #include "imagedata.h"
 #include "epdpaint.h"
 #include <stdio.h>
+
+/*
+// Pin definition
+#define RST_PIN         8   // WHITE
+#define DC_PIN          9   // GREEN
+#define CS_PIN          10  // ORANGE
+#define BUSY_PIN        7   // PURPLE
+#define PWR_PIN         6   // GREY - JUST PLUG INTO 5V
+*/
+#define PIN_BIT0 2 // NOTE THAT PINS 2 THRU 5 ARE USED AS INPUTS FOR GEAR NUMBER
+#define NUM_BITS 4
+
 
 // E-PAPER DISPLAY
 Epd epd;
@@ -52,8 +45,8 @@ unsigned long time_now_s;
 #define UNCOLORED 1
 
 // INPUTS
-int currentGear = 0;
-int targetGear = 0;
+int prevGear = 0;
+int displayGear = 0;
 bool isHomed = true;
 bool isIdle = false;
 bool atPos = false;
@@ -64,12 +57,21 @@ int error = 0;
 
 void setup()
 {
-  //Serial.begin(115200);
+  if(!DEMO_MODE){
+    Serial.begin(115200); // the serial interferes with the epaper display's ability to display images
+  }
+
   setupDisplay();
-  infoDisplay(mode, step);
-  gearDisplay(13);
+  showInfo(mode, step);
+  showGearImage(13);
   mode = Dimitri::Modes::ABORTING;
   Serial.println("Dimitri Display Setup Complete");
+
+  // INPUTS
+  for (int i = 0; i < NUM_BITS; i++)
+  {
+    pinMode(i+PIN_BIT0, INPUT);
+  }
 }
 
 String stringInput = "";
@@ -78,32 +80,50 @@ bool infoUpdated = false;
 
 void loop()
 {
-
-  taskProcessUserInput();
-
-  switch (mode)
+  if (DEMO_MODE)
   {
-  case Dimitri::Modes::ABORTING:
-  case Dimitri::Modes::RESETTING:
-  case Dimitri::Modes::KILLED:
-  case Dimitri::Modes::INACTIVE:
-  case Dimitri::Modes::HOMING:
-    if (infoUpdated)
-    {
-      infoDisplay(mode, step);
+    // 1. READ THE DIGITAL INPUTS AND CALCULATE THE GEAR NUMBER
+    displayGear = getGearNumber();
+
+    // 2. CHECK IF GEAR NUMBER CHANGE, IF SO THEN UPDATE THE DISPLAY
+    if(displayGear != prevGear){
+      showGearImage(displayGear);
+      prevGear = displayGear;
     }
-    break;
-  case Dimitri::Modes::IDLE:
-  case Dimitri::Modes::RUNNING:
-    if (infoUpdated)
-    {
-      gearDisplay(targetGear);
-    }
-    break;
-  default:
-    break;
+    delay(5);
   }
-  infoUpdated = false;
+  else{
+    
+    taskProcessUserInput();
+
+    if (infoUpdated){
+      showInfo(mode, step);
+    }
+
+    switch (mode)
+    {
+    case Dimitri::Modes::ABORTING:
+    case Dimitri::Modes::RESETTING:
+    case Dimitri::Modes::KILLED:
+    case Dimitri::Modes::INACTIVE:
+    case Dimitri::Modes::HOMING:
+      if (infoUpdated)
+      {
+        //showInfo(mode, step);
+      }
+      break;
+    case Dimitri::Modes::IDLE:
+    case Dimitri::Modes::RUNNING:
+      if (infoUpdated)
+      {
+        //showGearImage(displayGear);
+      }
+      break;
+    default:
+      break;
+    }
+    infoUpdated = false;
+  }
 }
 
 // handles serial cmds that aren't already handled by ISerial (connect, mode, debug, maybe more?)
@@ -144,15 +164,37 @@ void setupDisplay()
   paint.Clear(UNCOLORED);
 }
 
-void gearDisplay(int gear)
+void showGearImage(int gear)
 {
   epd.DisplayPartBaseImage(IMAGE_DATA[gear % 13]);
 }
 
-void infoDisplay(int mode, int step)
+void showError(int mode, int step)
 {
   // char str[13][10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"};
-  Serial.println("infoDisplay");
+  Serial.println("showInfo");
+  paint.Clear(UNCOLORED);
+
+  paint.SetWidth(95);
+  paint.SetHeight(80);
+  String modeStr = String(mode);
+  String stepStr = String(step);
+
+  paint.DrawStringAt(0, 0, "M", &Font24, COLORED);
+  paint.DrawStringAt(30, 0, modeStr.c_str(), &Font24, COLORED);
+
+  paint.DrawStringAt(30, 30, stepStr.c_str(), &Font24, COLORED);
+  paint.DrawStringAt(0, 30, "E", &Font24, COLORED);
+
+  paint.SetRotate(ROTATE_0);
+  epd.SetFrameMemoryPartial(paint.GetImage(), 0, 140, paint.GetWidth(), paint.GetHeight());
+  epd.DisplayPartFrame();
+}
+
+void showInfo(int mode, int step)
+{
+  // char str[13][10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"};
+  Serial.println("showInfo");
   paint.Clear(UNCOLORED);
 
   paint.SetWidth(95);
@@ -171,9 +213,9 @@ void infoDisplay(int mode, int step)
   epd.DisplayPartFrame();
 }
 
-void infoDisplayOffset(const char *chr1, int val1, const char *chr2, int val2)
+void showInfoOffset(const char *chr1, int val1, const char *chr2, int val2)
 {
-  Serial.println("infoDisplay");
+  Serial.println("showInfo");
   paint.Clear(UNCOLORED);
 
   paint.SetWidth(95);
@@ -196,7 +238,7 @@ void processGearInfo()
 
   if (!parseLong(readBuffer, tempLong))
   {
-    targetGear = tempLong;
+    displayGear = tempLong;
     infoUpdated = true;
   }
   else
@@ -238,7 +280,7 @@ void processErrorInfo()
   if (!parseLong(readBuffer, tempLong))
   {
     error = tempLong;
-    infoDisplayOffset("E", error, "E", error);
+    showInfoOffset("E", error, "E", error);
   }
   else
   {
@@ -322,4 +364,30 @@ bool parseLong(String myString, long &myNumber)
   {
     return false;
   }
+}
+
+int convertBoolArrayToInt(bool boolArray[4])
+{
+  int result = 0;
+  for (int i = 0; i < 4; i++)
+  {
+    if (boolArray[i])
+    {
+      result |= (1 << i);
+    }
+  }
+  return result;
+}
+
+int getGearNumber()
+{
+  int result = 0;
+  for (int i = 0; i < NUM_BITS; i++)
+  {
+    if (digitalRead(i + PIN_BIT0))
+    {
+      result |= (1 << i);
+    }
+  }
+  return result;
 }

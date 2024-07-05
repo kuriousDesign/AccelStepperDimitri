@@ -6,6 +6,8 @@
 const bool CALIBRATE_HOME = false; // set to true when training home offset position
 const int HOME_OFFSET = 0;        //
 
+
+
 // INPUT FILTER
 #include "InputFilter.h"
 
@@ -19,30 +21,7 @@ float tempFloat;
 
 #include <TimerOne.h>
 
-class Dimitri
-{
-public:
-    // Game::Modes, these should match Game::Modes enum in the outerspace
-    enum Modes : int32_t
-    {
-        ABORTING = -3,
-        KILLED = -2,
-        INACTIVE = 0,
-        RESETTING = 50,
-        IDLE = 100,
-        HOMING = 200,
-        RUNNING = 500,
-        MANUAL = 1100,
-
-    };
-
-    enum Errors : int32_t
-    {
-        NONE = 0,
-        POS_LIM_SW_ON_WHEN_NOT_AT_GEAR_12 = 1,
-    };
-};
-
+#include "Dimitri.h"
 // STEPPER INCLUDES
 #include <AccelStepper.h>
 
@@ -63,6 +42,8 @@ SPIN_DIR = 13;
 #define PIN_SHIFT_DOWN 10 // labelled as Y+_LIMIT_PIN on Shield, BROWN WIRE on Shifter
 #define PIN_POS_LIM 11    // labelled as Z+_LIMIT_PIN on Shield
 #define PIN_CAM 12        // labelled as SPIN_EN on Shield
+#define PIN_BIT0 22       // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER
+#define NUM_BITS 4
 
 #define MICRO_STEP 1 // 1 = Full, 2 = Half, 4, 8, 16
 #define STEPS_PER_REV 200 * MICRO_STEP
@@ -91,6 +72,8 @@ AccelStepper stepper(AccelStepper::DRIVER, PIN_STEP, PIN_DIR);
 unsigned long time_start_ms;
 unsigned long time_now_s;
 
+int errorNumber = 0;
+
 void setup()
 {
 
@@ -108,6 +91,12 @@ void setup()
     pinMode(PIN_SHIFT_DOWN, INPUT_PULLUP); //  use a 10K resistor at ground to switch
     pinMode(PIN_POS_LIM, INPUT_PULLUP);           //  use a 10K resistor at ground to switch
     pinMode(PIN_CAM, INPUT_PULLUP);               //  use a 10K resistor at ground to switch
+
+    // GEAR NUMBER OUTPUTS FOR DISPLAY
+    for (int i = 0; i < NUM_BITS; i++)
+    {
+        pinMode(2*i+PIN_BIT0, OUTPUT);
+    }
 
     disableMotor();
 
@@ -228,7 +217,17 @@ void loop()
         break;
     case Dimitri::Modes::KILLED:
         disableMotor();
-        iSerial.setNewMode(Dimitri::Modes::INACTIVE);
+        if(errorNumber == 0)
+        {
+            iSerial.setNewMode(Dimitri::Modes::INACTIVE);
+        }
+        else{
+            iSerial.setNewMode(Dimitri::Modes::ERROR);
+        }
+        break;
+    case Dimitri::Modes::ERROR:
+        disableMotor();
+        iSerial.status.step = errorNumber;
         break;
     case Dimitri::Modes::INACTIVE:
         if (autoHomeAtPowerup)
@@ -243,6 +242,7 @@ void loop()
         if (atPos && !iCamSw)
         {
             iSerial.debugPrintln("ERROR! Cam switch is not detected when at position");
+            errorNumber = Dimitri::Errors::CAM_SW_NOT_DETECTED_WHEN_AT_POS;
             iSerial.setNewMode(Dimitri::Modes::ABORTING);
         }
         else if (checkGearChange())
@@ -479,6 +479,7 @@ void loop()
         }
         else if (iSerial.status.step == 911)
         {
+            errorNumber = Dimitri::Errors::HOMING_FAILED;
             iSerial.debugPrintln("ERROR! Homing failed, aborting");
             iSerial.setNewMode(Dimitri::Modes::ABORTING);
         }
@@ -533,7 +534,8 @@ bool checkGearChange()
         if (iPosLimSw)
         {
             iSerial.debugPrintln("ERROR! Pos Lim Switch is active when not at gear 12, cannot shift up");
-            sendErrorInfo(Dimitri::Errors::POS_LIM_SW_ON_WHEN_NOT_AT_GEAR_12);
+            //sendErrorInfo(Dimitri::Errors::POS_LIM_SW_ON_WHEN_NOT_AT_GEAR_12);
+            errorNumber = Dimitri::Errors::POS_LIM_SW_ON_WHEN_NOT_AT_GEAR_12;
             iSerial.debugPrintln("auto aborting...");
             iSerial.setNewMode(Dimitri::Modes::ABORTING);
             return false;
@@ -667,6 +669,7 @@ void processGearChange()
 void sendGearInfo(long gear)
 {
     Serial1.println("G" + String(gear));
+    updateGearNumberDigitalOutputs(gear);
 }
 
 // send step info to the display device
@@ -939,4 +942,12 @@ int homeMotor(bool reset = false)
     }
     prevHomingState = homingState;
     return homingState;
+}
+
+// sets the digital outputs for the gear number to be received by the display device
+void updateGearNumberDigitalOutputs(int num){
+    for (int i = 0; i < NUM_BITS; i++) {
+        bool val = (num >> i) & 1;
+        digitalWrite(i+PIN_BIT0, val);
+    }
 }
