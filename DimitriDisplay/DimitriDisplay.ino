@@ -5,7 +5,7 @@
 // TODO: cannot use Serial with certain part of ePaper library, can use disrete i/o for comms
 /////////////////////////////////////////////////////////////////////
 
-#define DEMO_MODE true //this is the normal case
+const bool DEMO_MODE = true; //this is the normal case
 
 // SERIAL BUFFER
 long tempLong = 0;
@@ -30,7 +30,7 @@ char readBufferArray[MAX_LENGTH + 1];
 #define BUSY_PIN        7   // PURPLE
 #define PWR_PIN         6   // GREY - JUST PLUG INTO 5V
 */
-#define PIN_BIT0 2 // NOTE THAT PINS 2 THRU 5 ARE USED AS INPUTS FOR GEAR NUMBER
+#define PIN_BIT0 22 // NOTE THAT PINS 22, 24, 26 & 28 ARE USED AS INPUTS FOR GEAR NUMBER
 #define NUM_BITS 4
 
 
@@ -57,20 +57,22 @@ int error = 0;
 
 void setup()
 {
+  setupDisplay();
+  mode = Dimitri::Modes::ABORTING;
+
   if(!DEMO_MODE){
     Serial.begin(115200); // the serial interferes with the epaper display's ability to display images
+    showInfo(mode, step);
+    Serial.println("Dimitri Display Setup Complete");
+  } else {
+    showGearImage(0);
   }
-
-  setupDisplay();
-  showInfo(mode, step);
-  showGearImage(13);
-  mode = Dimitri::Modes::ABORTING;
-  Serial.println("Dimitri Display Setup Complete");
+  
 
   // INPUTS
   for (int i = 0; i < NUM_BITS; i++)
   {
-    pinMode(i+PIN_BIT0, INPUT);
+    pinMode(2*i+PIN_BIT0, INPUT);
   }
 }
 
@@ -84,6 +86,8 @@ void loop()
   {
     // 1. READ THE DIGITAL INPUTS AND CALCULATE THE GEAR NUMBER
     displayGear = getGearNumber();
+    //displayGear++;
+    //displayGear = getGearNumberTest(displayGear%13);
 
     // 2. CHECK IF GEAR NUMBER CHANGE, IF SO THEN UPDATE THE DISPLAY
     if(displayGear != prevGear){
@@ -166,7 +170,11 @@ void setupDisplay()
 
 void showGearImage(int gear)
 {
-  epd.DisplayPartBaseImage(IMAGE_DATA[gear % 13]);
+  if (gear < 0 || gear > 12)
+  {
+    gear = 0;
+  }
+  epd.DisplayPartBaseImage(IMAGE_DATA[gear]);
 }
 
 void showError(int mode, int step)
@@ -384,7 +392,33 @@ int getGearNumber()
   int result = 0;
   for (int i = 0; i < NUM_BITS; i++)
   {
-    if (digitalRead(i + PIN_BIT0))
+    if (digitalRead(2*i + PIN_BIT0))
+    {
+      result |= (1 << i);
+    }
+  }
+  return result;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// JUST USED FOR TESTING
+
+// sets the digital outputs for the gear number to be received by the display device
+bool fakeIo[4] = {false,false,false,false};
+void updateFakeGearNumberDigitalOutputs(int num){
+    for (int i = 0; i < NUM_BITS; i++) {
+        bool val = (num >> i) & 1;
+        fakeIo[i] = val;
+    }
+}
+
+int getGearNumberTest(int num)
+{
+  updateFakeGearNumberDigitalOutputs(num);
+  int result = 0;
+  for (int i = 0; i < NUM_BITS; i++)
+  {
+    if (fakeIo[i])
     {
       result |= (1 << i);
     }
